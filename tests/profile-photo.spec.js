@@ -11,7 +11,7 @@ TC-PP-005                A file over 5 MB is rejected and Save stays disabled
 TC-PP-006                An unsupported format (GIF) is rejected with the error message
 TC-PP-007                The error clears after you select a valid file
 TC-PP-008                Upload and Save works (the modal closes after saving)
-TC-PP-009                Uploaded photo persists after a page reload
+TC-PP-009                Uploaded photo persists after a page reload (avatar src is compared, not just Save's disabled state)
 TC-PP-010                A network error during save shows a message and Save stays enabled
 TC-PP-011                Retrying Save after a failed attempt succeeds
 
@@ -33,6 +33,7 @@ const { test, expect } = require('@playwright/test');
 const PROFILE_URL = '/profile';
 const photoTrigger = (page) =>
   page.getByRole('main').getByRole('img').nth(1); // edit icon next to the avatar
+const avatarImg = (page) => page.getByRole('main').getByRole('img').nth(0); // the avatar image itself
 const btn = (page, name) => page.getByRole('button', { name, exact: true });
 const fileInput = (page) => page.locator('input[type="file"]');
 // ---------------------------------------------------------------------------
@@ -50,6 +51,13 @@ const bigPng = {
   buffer: Buffer.concat([PNG_1PX, Buffer.alloc(6 * 1024 * 1024)]), // ~6 MB
 };
 const gif = { name: 'anim.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') };
+
+// A fresh PNG per call (unique bytes via Date.now()) so each run's upload is distinguishable
+const uniquePng = () => ({
+  name: `valid-${Date.now()}.png`,
+  mimeType: 'image/png',
+  buffer: Buffer.concat([PNG_1PX, Buffer.from(String(Date.now()))]),
+});
 
 test.describe('Profile Photo - Issue #44', () => {
   test.beforeEach(async ({ page }) => {
@@ -117,13 +125,16 @@ test.describe('Profile Photo - Issue #44', () => {
   });
 
   test('TC-PP-009: Uploaded photo persists after page reload', async ({ page }) => {
-    await fileInput(page).setInputFiles(validPng);
+    const srcBefore = await avatarImg(page).getAttribute('src');
+
+    await fileInput(page).setInputFiles(uniquePng());
     await btn(page, 'Save').click();
     await expect(btn(page, 'Save')).toBeHidden({ timeout: 30000 });
 
     await page.reload({ waitUntil: 'domcontentloaded' });
-    await photoTrigger(page).click();
-    await expect(btn(page, 'Save')).toBeDisabled();
+    const srcAfter = await avatarImg(page).getAttribute('src');
+
+    expect(srcAfter).not.toBe(srcBefore);
   });
 
     test('TC-PP-010: Network error during save shows a message and keeps Save enabled', async ({ page }) => {
